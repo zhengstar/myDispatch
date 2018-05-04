@@ -121,6 +121,7 @@ dispatch_source_create(dispatch_source_type_t type,
 	ds->do_vtable = &_dispatch_source_kevent_vtable;
 	ds->do_ref_cnt++; // the reference the manger queue holds
 	ds->do_ref_cnt++; // since source is created suspended
+	//默认处于暂状态，需要手动调用resume
 	ds->do_suspend_cnt = DISPATCH_OBJECT_SUSPEND_INTERVAL;
 	// The initial target queue is the manager queue, in order to get
 	// the source installed. <rdar://problem/8928171>
@@ -152,6 +153,7 @@ dispatch_source_create(dispatch_source_type_t type,
 	dispatch_assert(!(ds->ds_is_level && ds->ds_is_adder));
 
 	// First item on the queue sets the user-specified target queue
+	//设置事件回调的队列
 	dispatch_set_target_queue(ds, q);
 #if DISPATCH_DEBUG
 	dispatch_debug(ds, "%s", __FUNCTION__);
@@ -1042,7 +1044,7 @@ _dispatch_timer_list_update(dispatch_source_t ds)
 	// change the list if the clock type has changed
 	ds->ds_dkev = &_dispatch_kevent_timer[_dispatch_source_timer_idx(dr)];
 
-	TAILQ_FOREACH(dri, &ds->ds_dkev->dk_sources, dr_list) {
+	TAILQ_FOREACH(dri, &ds->ds_dkev->dk_sources, dr_list) {//循环遍历找到dr的位置 （从小到大排序）
 		if (ds_timer(dri).target == 0 ||
 				ds_timer(dr).target < ds_timer(dri).target) {
 			break;
@@ -1050,9 +1052,9 @@ _dispatch_timer_list_update(dispatch_source_t ds)
 	}
 
 	if (dri) {
-		TAILQ_INSERT_BEFORE(dri, dr, dr_list);
+		TAILQ_INSERT_BEFORE(dri, dr, dr_list);//在dri之前插入dr
 	} else {
-		TAILQ_INSERT_TAIL(&ds->ds_dkev->dk_sources, dr, dr_list);
+		TAILQ_INSERT_TAIL(&ds->ds_dkev->dk_sources, dr, dr_list);//队尾追加dr
 	}
 }
 
@@ -1200,7 +1202,10 @@ _dispatch_source_set_timer2(void *context)
 {
 	// Called on the source queue
 	struct dispatch_set_timer_params *params = context;
+	//暂停队列，
 	dispatch_suspend(params->ds);
+	//在_dispatch_mgr_q队列上执行_dispatch_source_set_timer3
+	//执行提交到_dispatch_mgr_q队列的block时，会调用&_dispatch_mgr_q->do_invoke函数，即&_dispatch_mgr_q的vtable中定义的_dispatch_mgr_thread。接下来会走到_dispatch_mgr_invoke函数
 	dispatch_barrier_async_f(&_dispatch_mgr_q, params,
 			_dispatch_source_set_timer3);
 }
@@ -1233,7 +1238,7 @@ dispatch_source_set_timer(dispatch_source_t ds,
 	} else if (start == DISPATCH_TIME_FOREVER) {
 		start = INT64_MAX;
 	}
-
+	//创建dispatch_set_timer_params结构体绑定source和timer参数
 	while (!(params = calloc(1ul, sizeof(struct dispatch_set_timer_params)))) {
 		sleep(1);
 	}
@@ -1268,6 +1273,7 @@ dispatch_source_set_timer(dispatch_source_t ds,
 	// Suspend the source so that it doesn't fire with pending changes
 	// The use of suspend/resume requires the external retain/release
 	dispatch_retain(ds);
+	//将source当做队列使用，执行_dispatch_source_set_timer2
 	dispatch_barrier_async_f((dispatch_queue_t)ds, params,
 			_dispatch_source_set_timer2);
 }

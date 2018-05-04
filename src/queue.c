@@ -1827,7 +1827,7 @@ _dispatch_queue_push_list_slow(dispatch_queue_t dq,
 //         renaming this symbol
 dispatch_queue_t
 _dispatch_wakeup(dispatch_object_t dou)
-{
+{//dispatch_object_t加入do_targetq中
 	dispatch_queue_t tq;
 
 	if (slowpath(DISPATCH_OBJECT_SUSPENDED(dou._do))) {
@@ -1840,6 +1840,8 @@ _dispatch_wakeup(dispatch_object_t dou)
 	// _dispatch_source_invoke() relies on this testing the whole suspend count
 	// word, not just the lock bit. In other words, no point taking the lock
 	// if the source is suspended or canceled.
+	
+	//如果dou._do.do_suspend_cnt == 0 将DISPATCH_OBJECT_SUSPEND_LOCK赋值给do_suspend_cnt 并返回true
 	if (!dispatch_atomic_cmpxchg2o(dou._do, do_suspend_cnt, 0,
 			DISPATCH_OBJECT_SUSPEND_LOCK)) {
 #if DISPATCH_COCOA_COMPAT
@@ -1849,6 +1851,7 @@ _dispatch_wakeup(dispatch_object_t dou)
 #endif
 		return NULL;
 	}
+	//dispatch_resume 调用后 timer的 do_suspend_cnt才为0 才能够走到这里
 	_dispatch_retain(dou._do);
 	tq = dou._do->do_targetq;
 	_dispatch_queue_push(tq, dou._do);
@@ -1959,7 +1962,7 @@ void
 _dispatch_queue_invoke(dispatch_queue_t dq)
 {
 	if (!slowpath(DISPATCH_OBJECT_SUSPENDED(dq)) &&
-			fastpath(dispatch_atomic_cmpxchg2o(dq, dq_running, 0, 1))) {
+			fastpath(dispatch_atomic_cmpxchg2o(dq, dq_running, 0, 1))) {//如果队列没有挂起 并且没有run
 		dispatch_atomic_acquire_barrier();
 		dispatch_queue_t otq = dq->do_targetq, tq = NULL;
 		_dispatch_queue_drain(dq);
@@ -2697,7 +2700,7 @@ _dispatch_mgr_invoke(void)
 	struct kevent kev[1];
 	int k_cnt, err, i, r;
 
-	_dispatch_thread_setspecific(dispatch_queue_key, &_dispatch_mgr_q);
+	_dispatch_thread_setspecific(dispatch_queue_key, &_dispatch_mgr_q);//设置线程共享队列
 #if DISPATCH_COCOA_COMPAT
 	// Do not count the manager thread as a worker thread
 	(void)dispatch_atomic_dec(&_dispatch_worker_threads);

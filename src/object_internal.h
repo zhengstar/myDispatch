@@ -64,7 +64,7 @@ enum {
 	const char *const do_kind; /*do_kind 种类，例如：semaphore/group/queue…*/\
 	size_t (*const do_debug)(struct x *, char *, size_t); /*do_debug debug回调*/\
 	struct dispatch_queue_s *(*const do_invoke)(struct x *); /*do_invoke 出队列回调*/\
-	bool (*const do_probe)(struct x *); /*do_probe 加入队回调*/\
+	bool (*const do_probe)(struct x *); /*do_probe 唤醒前的探查回调*/\
 	void (*const do_dispose)(struct x *)/*do_dispose 销毁队列的方法*/
 
 #define dx_type(x) (x)->do_vtable->do_type

@@ -77,12 +77,12 @@ struct dispatch_queue_vtable_s {
 #endif
 
 #define DISPATCH_QUEUE_HEADER \
-	uint32_t volatile dq_running; \
-	uint32_t dq_width; \
-	struct dispatch_object_s *volatile dq_items_tail; \
-	struct dispatch_object_s *volatile dq_items_head; \
-	unsigned long dq_serialnum; \
-	dispatch_queue_t dq_specific_q;
+	uint32_t volatile dq_running; /*队列运行数*/\
+	uint32_t dq_width; /*队列宽度*/\
+	struct dispatch_object_s *volatile dq_items_tail; /*队列链表尾*/\
+	struct dispatch_object_s *volatile dq_items_head; /*队列链表头*/\
+	unsigned long dq_serialnum; /*队列序列号*/\
+	dispatch_queue_t dq_specific_q;/*关联队列*/
 
 struct dispatch_queue_s {
 	DISPATCH_STRUCT_HEADER(dispatch_queue_s, dispatch_queue_vtable_s);
@@ -102,18 +102,18 @@ DISPATCH_ALWAYS_INLINE
 static inline void
 _dispatch_queue_push_list(dispatch_queue_t dq, dispatch_object_t _head,
 		dispatch_object_t _tail)
-{
+{//在dq中的追加链表
 	struct dispatch_object_s *prev, *head = _head._do, *tail = _tail._do;
 
 	tail->do_next = NULL;
 	dispatch_atomic_store_barrier();
 	prev = fastpath(dispatch_atomic_xchg2o(dq, dq_items_tail, tail));
-	if (prev) {
+	if (prev) {//如果队列之前有内容在尾部追加
 		// if we crash here with a value less than 0x1000, then we are at a
 		// known bug in client code for example, see _dispatch_queue_dispose
 		// or _dispatch_atfork_child
 		prev->do_next = head;
-	} else {
+	} else {//如果队列空
 		_dispatch_queue_push_list_slow(dq, head);
 	}
 }
