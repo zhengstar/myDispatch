@@ -1191,8 +1191,8 @@ _dispatch_source_set_timer3(void *context)
 	// Clear any pending data that might have accumulated on
 	// older timer params <rdar://problem/8574886>
 	ds->ds_pending_data = 0;
-	_dispatch_timer_list_update(ds);
-	dispatch_resume(ds);
+	_dispatch_timer_list_update(ds);//install timer
+	dispatch_resume(ds);//set_timer2配
 	dispatch_release(ds);
 	free(params);
 }
@@ -1205,7 +1205,6 @@ _dispatch_source_set_timer2(void *context)
 	//暂停队列，
 	dispatch_suspend(params->ds);
 	//在_dispatch_mgr_q队列上执行_dispatch_source_set_timer3
-	//执行提交到_dispatch_mgr_q队列的block时，会调用&_dispatch_mgr_q->do_invoke函数，即&_dispatch_mgr_q的vtable中定义的_dispatch_mgr_thread。接下来会走到_dispatch_mgr_invoke函数
 	dispatch_barrier_async_f(&_dispatch_mgr_q, params,
 			_dispatch_source_set_timer3);
 }
@@ -1258,11 +1257,6 @@ dispatch_source_set_timer(dispatch_source_t ds,
 		params->ident = DISPATCH_TIMER_INDEX_MACH;
 		params->values.target = start;
 		params->values.interval = _dispatch_time_nano2mach(interval);
-
-		// rdar://problem/7287561 interval must be at least one in
-		// in order to avoid later division by zero when calculating
-		// the missed interval count. (NOTE: the wall clock's
-		// interval is already "fixed" to be 1 or more)
 		if (params->values.interval < 1) {
 			params->values.interval = 1;
 		}

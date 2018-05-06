@@ -1965,7 +1965,7 @@ _dispatch_queue_invoke(dispatch_queue_t dq)
 			fastpath(dispatch_atomic_cmpxchg2o(dq, dq_running, 0, 1))) {//如果队列没有挂起 并且没有run
 		dispatch_atomic_acquire_barrier();
 		dispatch_queue_t otq = dq->do_targetq, tq = NULL;
-		_dispatch_queue_drain(dq);
+		_dispatch_queue_drain(dq);//清空队列中的任务 同时也会执行
 		if (dq->do_vtable->do_invoke) {
 			// Assume that object invoke checks it is executing on correct queue
 			tq = dx_invoke(dq);
@@ -2030,11 +2030,11 @@ _dispatch_queue_drain(dispatch_queue_t dq)
 			if (slowpath(orig_tq != dq->do_targetq) && check_tq) {
 				goto out;
 			}
-			if (fastpath(dq->dq_width == 1)) {
+			if (fastpath(dq->dq_width == 1)) {//如果是串行队列按顺序执行
 				_dispatch_continuation_pop(dc);
 				_dispatch_workitem_inc();
 			} else if (!DISPATCH_OBJ_IS_VTABLE(dc) &&
-					(long)dc->do_vtable & DISPATCH_OBJ_BARRIER_BIT) {
+					(long)dc->do_vtable & DISPATCH_OBJ_BARRIER_BIT) {//如果是BARRIER相关方法等待正在运行的任务结束
 				if (dq->dq_running > 1) {
 					goto out;
 				}
@@ -2257,8 +2257,8 @@ _dispatch_worker_thread2(void *context)
 #if DISPATCH_PERF_MON
 	uint64_t start = _dispatch_absolute_time();
 #endif
-	while ((item = fastpath(_dispatch_queue_concurrent_drain_one(dq)))) {
-		_dispatch_continuation_pop(item);
+	while ((item = fastpath(_dispatch_queue_concurrent_drain_one(dq)))) {//从队列中取出队列
+		_dispatch_continuation_pop(item);//队列中的任务出队
 	}
 #if DISPATCH_PERF_MON
 	_dispatch_queue_merge_stats(start);
