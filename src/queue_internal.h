@@ -77,7 +77,7 @@ struct dispatch_queue_vtable_s {
 #endif
 
 #define DISPATCH_QUEUE_HEADER \
-	uint32_t volatile dq_running; /*队列运行数*/\
+	uint32_t volatile dq_running; /*队列中运行任务数*/\
 	uint32_t dq_width; /*队列宽度*/\
 	struct dispatch_object_s *volatile dq_items_tail; /*队列链表尾*/\
 	struct dispatch_object_s *volatile dq_items_head; /*队列链表头*/\

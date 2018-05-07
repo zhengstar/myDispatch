@@ -2710,7 +2710,7 @@ _dispatch_mgr_invoke(void)
 	for (;;) {
 		_dispatch_run_timers();
 
-		timeoutp = _dispatch_get_next_timer_fire(&timeout);
+		timeoutp = _dispatch_get_next_timer_fire(&timeout);//取下次触发时间
 
 		if (_dispatch_select_workaround) {
 			FD_COPY(&_dispatch_rfds, &tmp_rfds);
@@ -2723,7 +2723,7 @@ _dispatch_mgr_invoke(void)
 			} else {
 				sel_timeoutp = NULL;
 			}
-
+			//通过I/O多路复用监控文件描述符，如果有事件发生返回事件数量，错误返回-1 超时返回0
 			r = select(FD_SETSIZE, &tmp_rfds, &tmp_wfds, NULL, sel_timeoutp);
 			if (r == -1) {
 				err = errno;
@@ -2790,7 +2790,7 @@ _dispatch_mgr_invoke(void)
 
 			timeoutp = &timeout_immediately;
 		}
-
+		//另一种I/O多路复用(不需要创建及管理一个描述符的链表) 出错返回-1 成功返回事件数 超时返回0
 		k_cnt = kevent(_dispatch_kq, NULL, 0, kev, sizeof(kev) / sizeof(kev[0]),
 				timeoutp);
 		err = errno;
