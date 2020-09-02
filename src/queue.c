@@ -1050,7 +1050,7 @@ _dispatch_continuation_redirect(dispatch_queue_t dq, dispatch_object_t dou)
 	_dispatch_trace_continuation_pop(dq, dou);
 	(void)dispatch_atomic_add2o(dq, dq_running, 2);
 	if (!DISPATCH_OBJ_IS_VTABLE(dc) &&
-			(long)dc->do_vtable & DISPATCH_OBJ_SYNC_SLOW_BIT) {
+			(long)dc->do_vtable & DISPATCH_OBJ_SYNC_SLOW_BIT) {//同步任务 发送信号量唤醒等待线程
 		dispatch_atomic_barrier();
 		_dispatch_thread_semaphore_signal(
 				(_dispatch_thread_semaphore_t)dc->dc_ctxt);
@@ -1067,7 +1067,8 @@ _dispatch_continuation_pop(dispatch_object_t dou)
 	dispatch_group_t dg;
 
 	_dispatch_trace_continuation_pop(_dispatch_queue_get_current(), dou);
-	if (DISPATCH_OBJ_IS_VTABLE(dou._do)) {
+	
+	if (DISPATCH_OBJ_IS_VTABLE(dou._do)) {//如果是队列
 		return _dispatch_queue_invoke(dou._dq);
 	}
 
@@ -1077,7 +1078,7 @@ _dispatch_continuation_pop(dispatch_object_t dou)
 	// The ccache version is per-thread.
 	// Therefore, the object has not been reused yet.
 	// This generates better assembly.
-	if ((long)dc->do_vtable & DISPATCH_OBJ_ASYNC_BIT) {
+	if ((long)dc->do_vtable & DISPATCH_OBJ_ASYNC_BIT) {//将dispatch_continuation_t加入线程 等到线程销毁的时候清理
 		_dispatch_continuation_free(dc);
 	}
 	if ((long)dc->do_vtable & DISPATCH_OBJ_GROUP_BIT) {
@@ -1085,8 +1086,9 @@ _dispatch_continuation_pop(dispatch_object_t dou)
 	} else {
 		dg = NULL;
 	}
+	//执行任务
 	_dispatch_client_callout(dc->dc_ctxt, dc->dc_func);
-	if (dg) {
+	if (dg) {//如果是组任务
 		dispatch_group_leave(dg);
 		_dispatch_release(dg);
 	}
@@ -1113,7 +1115,7 @@ DISPATCH_NOINLINE
 void
 dispatch_barrier_async_f(dispatch_queue_t dq, void *ctxt,
 		dispatch_function_t func)
-{
+{//入队DISPATCH_OBJ_ASYNC_BIT | DISPATCH_OBJ_BARRIER_BIT的dispatch_continuation_t
 	dispatch_continuation_t dc;
 
 	dc = fastpath(_dispatch_continuation_alloc_cacheonly());
@@ -1178,7 +1180,7 @@ DISPATCH_NOINLINE
 static void
 _dispatch_async_f_redirect(dispatch_queue_t dq,
 		dispatch_continuation_t other_dc)
-{
+{//异步任务尝试加入root queue
 	dispatch_continuation_t dc;
 	dispatch_queue_t rq;
 
@@ -1273,7 +1275,7 @@ dispatch_async_f(dispatch_queue_t dq, void *ctxt, dispatch_function_t func)
 	dispatch_continuation_t dc;
 
 	// No fastpath/slowpath hint because we simply don't know
-	if (dq->dq_width == 1) {
+	if (dq->dq_width == 1) {//如果是串行队列 （主队列、管理队列 和自定义串行队列）
 		return dispatch_barrier_async_f(dq, ctxt, func);
 	}
 
@@ -1440,6 +1442,7 @@ _dispatch_barrier_sync_f_slow(dispatch_queue_t dq, void *ctxt,
 		.dbss2_func = func,
 		.dbss2_ctxt = ctxt,
 #endif
+		// 因为这里每次都是创建新的信号量 可以保证按照调用sync的顺序执行
 		.dbss2_sema = _dispatch_get_thread_semaphore(),
 	};
 	struct dispatch_barrier_sync_slow_s dbss = {
@@ -1448,6 +1451,7 @@ _dispatch_barrier_sync_f_slow(dispatch_queue_t dq, void *ctxt,
 		.dc_func = _dispatch_barrier_sync_f_slow_invoke,
 		.dc_ctxt = &dbss2,
 	};
+	//入队dispatch_barrier_sync_slow_s 队列倾倒的时候会执行_dispatch_barrier_sync_f_slow_invoke 然后触发_dispatch_thread_semaphore_signal 才能执行wait后面的代码
 	_dispatch_queue_push(dq, (void *)&dbss);
 
 	_dispatch_thread_semaphore_wait(dbss2.dbss2_sema);
@@ -1460,6 +1464,7 @@ _dispatch_barrier_sync_f_slow(dispatch_queue_t dq, void *ctxt,
 	}
 #endif
 	dispatch_atomic_acquire_barrier();
+	//执行任务
 	if (slowpath(dq->do_targetq) && slowpath(dq->do_targetq->do_targetq)) {
 		_dispatch_function_recurse(dq, ctxt, func);
 	} else {
@@ -1548,10 +1553,10 @@ dispatch_barrier_sync_f(dispatch_queue_t dq, void *ctxt,
 {
 	// 1) ensure that this thread hasn't enqueued anything ahead of this call
 	// 2) the queue is not suspended
-	if (slowpath(dq->dq_items_tail) || slowpath(DISPATCH_OBJECT_SUSPENDED(dq))){
+	if (slowpath(dq->dq_items_tail) || slowpath(DISPATCH_OBJECT_SUSPENDED(dq))){//队列中有前序任务 或者 队列处于挂起状态
 		return _dispatch_barrier_sync_f_slow(dq, ctxt, func);
 	}
-	if (slowpath(!dispatch_atomic_cmpxchg2o(dq, dq_running, 0, 1))) {
+	if (slowpath(!dispatch_atomic_cmpxchg2o(dq, dq_running, 0, 1))) {//dq_running != 0 说明正在运行
 		// global queues and main queue bound to main thread always falls into
 		// the slow case
 		return _dispatch_barrier_sync_f_slow(dq, ctxt, func);
@@ -1601,7 +1606,7 @@ dispatch_barrier_sync(dispatch_queue_t dq, void (^work)(void))
 DISPATCH_NOINLINE
 static void
 _dispatch_sync_f_slow(dispatch_queue_t dq, void *ctxt, dispatch_function_t func)
-{
+{//入队信号量 并阻塞线程
 	_dispatch_thread_semaphore_t sema = _dispatch_get_thread_semaphore();
 	struct dispatch_sync_slow_s {
 		DISPATCH_CONTINUATION_HEADER(dispatch_sync_slow_s);
@@ -1610,7 +1615,7 @@ _dispatch_sync_f_slow(dispatch_queue_t dq, void *ctxt, dispatch_function_t func)
 		.dc_ctxt = (void*)sema,
 	};
 	_dispatch_queue_push(dq, (void *)&dss);
-
+	//将dispatch_sync_slow_s入队 队列倾倒的时候会调用_dispatch_thread_semaphore_signal 执行任务后唤醒当前线程
 	_dispatch_thread_semaphore_wait(sema);
 	_dispatch_put_thread_semaphore(sema);
 
@@ -1639,7 +1644,7 @@ DISPATCH_NOINLINE
 static void
 _dispatch_sync_f_invoke(dispatch_queue_t dq, void *ctxt,
 		dispatch_function_t func)
-{
+{//直接执行任务
 	_dispatch_function_invoke(dq, ctxt, func);
 	if (slowpath(dispatch_atomic_sub2o(dq, dq_running, 2) == 0)) {
 		_dispatch_wakeup(dq);
@@ -1663,10 +1668,10 @@ _dispatch_sync_f2(dispatch_queue_t dq, void *ctxt, dispatch_function_t func)
 {
 	// 1) ensure that this thread hasn't enqueued anything ahead of this call
 	// 2) the queue is not suspended
-	if (slowpath(dq->dq_items_tail) || slowpath(DISPATCH_OBJECT_SUSPENDED(dq))){
+	if (slowpath(dq->dq_items_tail) || slowpath(DISPATCH_OBJECT_SUSPENDED(dq))){//有前序任务 或者队列处于挂起状态
 		return _dispatch_sync_f_slow(dq, ctxt, func);
 	}
-	if (slowpath(dispatch_atomic_add2o(dq, dq_running, 2) & 1)) {
+	if (slowpath(dispatch_atomic_add2o(dq, dq_running, 2) & 1)) {//有正在运行的任务
 		return _dispatch_sync_f_slow2(dq, ctxt, func);
 	}
 	if (slowpath(dq->do_targetq->do_targetq)) {
@@ -1679,10 +1684,10 @@ DISPATCH_NOINLINE
 void
 dispatch_sync_f(dispatch_queue_t dq, void *ctxt, dispatch_function_t func)
 {
-	if (fastpath(dq->dq_width == 1)) {
+	if (fastpath(dq->dq_width == 1)) {//主队列和串行队列
 		return dispatch_barrier_sync_f(dq, ctxt, func);
 	}
-	if (slowpath(!dq->do_targetq)) {
+	if (slowpath(!dq->do_targetq)) {//global队列 不需要严格按照顺序执行 所以直接执行任务
 		// the global root queues do not need strict ordering
 		(void)dispatch_atomic_add2o(dq, dq_running, 2);
 		return _dispatch_sync_f_invoke(dq, ctxt, func);
@@ -1833,6 +1838,8 @@ _dispatch_wakeup(dispatch_object_t dou)
 	if (slowpath(DISPATCH_OBJECT_SUSPENDED(dou._do))) {
 		return NULL;
 	}
+	// 全局队列的dx_probe指向了_dispatch_queue_wakeup_global，这里走唤醒逻辑
+    // 如果唤醒失败，且队尾指针为空，则返回NULL
 	if (!dx_probe(dou._do) && !dou._dq->dq_items_tail) {
 		return NULL;
 	}
@@ -1852,6 +1859,7 @@ _dispatch_wakeup(dispatch_object_t dou)
 		return NULL;
 	}
 	//dispatch_resume 调用后 timer的 do_suspend_cnt才为0 才能够走到这里
+	// 如果既不是全局队列，也不是主队列，则找到该队列的目标队列do_targetq，将续体压入目标队列，继续走_dispatch_queue_push逻辑
 	_dispatch_retain(dou._do);
 	tq = dou._do->do_targetq;
 	_dispatch_queue_push(tq, dou._do);
@@ -1887,12 +1895,12 @@ _dispatch_queue_wakeup_main(void)
 
 static bool
 _dispatch_queue_wakeup_global(dispatch_queue_t dq)
-{
+{//找个线程执行
 	static dispatch_once_t pred;
 	struct dispatch_root_queue_context_s *qc = dq->do_ctxt;
 	int r;
 
-	if (!dq->dq_items_tail) {
+	if (!dq->dq_items_tail) {//空队列直接返回唤醒失败
 		return false;
 	}
 
@@ -1923,7 +1931,7 @@ _dispatch_queue_wakeup_global(dispatch_queue_t dq)
 	}
 #endif // HAVE_PTHREAD_WORKQUEUES
 #if DISPATCH_ENABLE_THREAD_POOL
-	if (dispatch_semaphore_signal(qc->dgq_thread_mediator)) {
+	if (dispatch_semaphore_signal(qc->dgq_thread_mediator)) {//如果有等待的线程 唤醒该线程 达到线程复用的目的 没有等待该信号量的线程返回0 有等待该信号量的线程返回非0
 		goto out;
 	}
 
@@ -1936,9 +1944,9 @@ _dispatch_queue_wakeup_global(dispatch_queue_t dq)
 			goto out;
 		}
 	} while (!dispatch_atomic_cmpxchg2o(qc, dgq_thread_pool_size, t_count,
-			t_count - 1));
+			t_count - 1));//可用线程池大小减1
 
-	while ((r = pthread_create(&pthr, NULL, _dispatch_worker_thread, dq))) {
+	while ((r = pthread_create(&pthr, NULL, _dispatch_worker_thread, dq))) {//创建线程 线程的执行入口是_dispatch_worker_thread
 		if (r != EAGAIN) {
 			(void)dispatch_assume_zero(r);
 		}
@@ -1965,7 +1973,7 @@ _dispatch_queue_invoke(dispatch_queue_t dq)
 			fastpath(dispatch_atomic_cmpxchg2o(dq, dq_running, 0, 1))) {//如果队列没有挂起 并且没有run
 		dispatch_atomic_acquire_barrier();
 		dispatch_queue_t otq = dq->do_targetq, tq = NULL;
-		_dispatch_queue_drain(dq);//清空队列中的任务 同时也会执行
+		_dispatch_queue_drain(dq);//清空队列中的任务 同时也会执行 最关键
 		if (dq->do_vtable->do_invoke) {
 			// Assume that object invoke checks it is executing on correct queue
 			tq = dx_invoke(dq);
@@ -1994,7 +2002,7 @@ _dispatch_queue_invoke(dispatch_queue_t dq)
 
 static void
 _dispatch_queue_drain(dispatch_queue_t dq)
-{
+{//倾倒队列里面的任务
 	dispatch_queue_t orig_tq, old_dq;
 	old_dq = _dispatch_thread_getspecific(dispatch_queue_key);
 	struct dispatch_object_s *dc = NULL, *next_dc = NULL;
@@ -2021,6 +2029,7 @@ _dispatch_queue_drain(dispatch_queue_t dq)
 					_dispatch_hardware_pause();
 				}
 			}
+			//异常case处理 挂起 超出队列宽度 队列检查失败
 			if (DISPATCH_OBJECT_SUSPENDED(dq)) {
 				goto out;
 			}
@@ -2035,7 +2044,7 @@ _dispatch_queue_drain(dispatch_queue_t dq)
 				_dispatch_workitem_inc();
 			} else if (!DISPATCH_OBJ_IS_VTABLE(dc) &&
 					(long)dc->do_vtable & DISPATCH_OBJ_BARRIER_BIT) {//如果是BARRIER相关方法等待正在运行的任务结束
-				if (dq->dq_running > 1) {
+				if (dq->dq_running > 1) {//如果有正在运行的任务则等待任务结束
 					goto out;
 				}
 				_dispatch_continuation_pop(dc);
@@ -2171,7 +2180,7 @@ _dispatch_queue_drain_one_barrier_sync(dispatch_queue_t dq)
 
 static struct dispatch_object_s *
 _dispatch_queue_concurrent_drain_one(dispatch_queue_t dq)
-{
+{//并发的找个任务来执行
 	struct dispatch_object_s *head, *next, *const mediator = (void *)~0ul;
 
 	// The mediator value acts both as a "lock" and a signal
@@ -2219,6 +2228,7 @@ _dispatch_queue_concurrent_drain_one(dispatch_queue_t dq)
 		}
 	}
 
+	//return之前调用_dispatch_queue_wakeup_global(找个线程来执行任务) 解释了为什么是并发
 	dq->dq_items_head = next;
 	_dispatch_queue_wakeup_global(dq);
 out:
@@ -2284,7 +2294,7 @@ _dispatch_worker_thread2(void *context)
 //         renaming this symbol
 static void *
 _dispatch_worker_thread(void *context)
-{
+{// 新创建的线程执行这段
 	dispatch_queue_t dq = context;
 	struct dispatch_root_queue_context_s *qc = dq->do_ctxt;
 	sigset_t mask;
@@ -2300,11 +2310,12 @@ _dispatch_worker_thread(void *context)
 		_dispatch_worker_thread2(context);
 		// we use 65 seconds in case there are any timers that run once a minute
 	} while (dispatch_semaphore_wait(qc->dgq_thread_mediator,
-			dispatch_time(0, 65ull * NSEC_PER_SEC)) == 0);
-
+			dispatch_time(0, 65ull * NSEC_PER_SEC)) == 0);//防止线程频繁创建 做一个65秒的信号等待 dispatch_semaphore_wait未超时返回0
+	//超时之后增加队列 do_ctxt的线程池大小
 	(void)dispatch_atomic_inc2o(qc, dgq_thread_pool_size);
-	if (dq->dq_items_tail) {
-		_dispatch_queue_wakeup_global(dq);
+	
+	if (dq->dq_items_tail) {//队列非空
+		_dispatch_queue_wakeup_global(dq);//从线程池中取个线程执行
 	}
 
 	return NULL;

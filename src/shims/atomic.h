@@ -69,11 +69,12 @@
 #define dispatch_atomic_dec(p)		dispatch_atomic_sub((p), 1)
 // really just a low level abort()
 #define _dispatch_hardware_crash()	__builtin_trap()
-
+// dispatch_atomic_cmpxchg2o p->f 和e相等 将n赋值给p->f 并返回true 否则返回false
 #define dispatch_atomic_cmpxchg2o(p, f, e, n) \
 		dispatch_atomic_cmpxchg(&(p)->f, (e), (n))
 #define dispatch_atomic_xchg2o(p, f, n) \
 		dispatch_atomic_xchg(&(p)->f, (n))
+// 将value加到p->f上，结果更新到p->f，并返回操作之后新p->f的值
 #define dispatch_atomic_add2o(p, f, v) \
 		dispatch_atomic_add(&(p)->f, (v))
 #define dispatch_atomic_sub2o(p, f, v) \
