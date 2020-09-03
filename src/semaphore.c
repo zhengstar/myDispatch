@@ -238,7 +238,7 @@ again:
 
 	switch (timeout) {
 	default:
-		do {
+		do {//保证成功等待
 			uint64_t nsec = _dispatch_timeout(timeout);
 			_timeout.tv_sec = (typeof(_timeout.tv_sec))(nsec / NSEC_PER_SEC);
 			_timeout.tv_nsec = (typeof(_timeout.tv_nsec))(nsec % NSEC_PER_SEC);
@@ -260,7 +260,7 @@ again:
 		// Another thread called semaphore_signal().
 		// Fall through and drain the wakeup.
 	case DISPATCH_TIME_FOREVER:
-		do {
+		do {//保证成功等待
 			kr = semaphore_wait(dsema->dsema_port);
 		} while (kr == KERN_ABORTED);
 		DISPATCH_SEMAPHORE_VERIFY_KR(kr);

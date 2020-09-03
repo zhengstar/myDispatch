@@ -77,6 +77,7 @@
 // 将value加到p->f上，结果更新到p->f，并返回操作之后新p->f的值
 #define dispatch_atomic_add2o(p, f, v) \
 		dispatch_atomic_add(&(p)->f, (v))
+// 从p->f减去v，结果更新到p->f，并返回操作之后新p->f的值
 #define dispatch_atomic_sub2o(p, f, v) \
 		dispatch_atomic_sub(&(p)->f, (v))
 #define dispatch_atomic_or2o(p, f, v) \
