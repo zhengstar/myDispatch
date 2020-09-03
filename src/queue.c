@@ -2577,7 +2577,8 @@ _dispatch_update_kq(const struct kevent *kev)
 			break;
 		}
 	}
-
+	// 监视kev_copy中的事件，如果列表里有任何就绪的fd，则把该事件对应的结构体放进第4个参数kev_copy列表里面。
+	// 该方法调用后会阻塞，直到有事件就绪。
 	int rval = kevent(_dispatch_get_kq(), &kev_copy, 1, &kev_copy, 1, NULL);
 	if (rval == -1) {
 		// If we fail to register with kevents, for other reasons aside from

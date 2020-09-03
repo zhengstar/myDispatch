@@ -522,7 +522,7 @@ _dispatch_source_invoke(dispatch_source_t ds)
 
 	dispatch_queue_t dq = _dispatch_queue_get_current();
 	dispatch_source_refs_t dr = ds->ds_refs;
-
+	// 如果ds还没有安装 则调用_dispatch_kevent_merge进行安装到管理队列上
 	if (!ds->ds_is_installed) {
 		// The source needs to be installed on the manager queue.
 		if (dq != &_dispatch_mgr_q) {
@@ -553,6 +553,8 @@ _dispatch_source_invoke(dispatch_source_t ds)
 		// The source has been cancelled and needs to be uninstalled from the
 		// manager queue. After uninstallation, the cancellation handler needs
 		// to be delivered to the target queue.
+		// source已经被取消，需要从管理队列中卸载掉，卸载完成后，取消回调需要发送到目标队列
+        // 可以看到，如果source的ds_dkev不为空，就需要管理队列，否则目标队列就可以了
 		if (ds->ds_dkev) {
 			if (dq != &_dispatch_mgr_q) {
 				return &_dispatch_mgr_q;
@@ -570,10 +572,12 @@ _dispatch_source_invoke(dispatch_source_t ds)
 		// The source has pending data to deliver via the event handler callback
 		// on the target queue. Some sources need to be rearmed on the manager
 		// queue after event delivery.
+		// source有未决的数据，需要通过在目标队列上通过回调传送
 		if (dq != ds->do_targetq) {
 			return ds->do_targetq;
 		}
 		_dispatch_source_latch_and_call(ds);
+		// 有些source需要进行rearmed，必须切到管理队列上
 		if (ds->ds_needs_rearm) {
 			return &_dispatch_mgr_q;
 		}
@@ -703,7 +707,8 @@ _dispatch_source_drain_kevent(struct kevent *ke)
 	if (ke->flags & EV_ONESHOT) {
 		dk->dk_kevent.flags |= EV_ONESHOT;
 	}
-
+	// 遍历dk->dk_sources，对里面的每一个source，执行_dispatch_source_merge_kevent
+    // 表示事件已经就绪
 	TAILQ_FOREACH(dri, &dk->dk_sources, dr_list) {
 		_dispatch_source_merge_kevent(_dispatch_source_from_refs(dri), ke);
 	}
@@ -806,29 +811,33 @@ _dispatch_kevent_register(dispatch_source_t ds)
 
 	dispatch_once_f(&__dispatch_kevent_init_pred,
 			NULL, _dispatch_kevent_init);
-
+// 寻找是否有相同的事件(dispatch kevent)
 	dk = _dispatch_kevent_find(ds->ds_dkev->dk_kevent.ident,
 			ds->ds_dkev->dk_kevent.filter);
 
 	if (dk) {
 		// If an existing dispatch kevent is found, check to see if new flags
 		// need to be added to the existing kevent
+		// 如果存在有相同的事件，则需要检查是否有新的flags需要更新，从这里可以看出，kevent
+        // 并不依赖于source，而是独立存在的。
 		new_flags = ~dk->dk_kevent.fflags & ds->ds_dkev->dk_kevent.fflags;
 		dk->dk_kevent.fflags |= ds->ds_dkev->dk_kevent.fflags;
 		free(ds->ds_dkev);
 		ds->ds_dkev = dk;
 		do_resume = new_flags;
 	} else {
+		// 如果不存在，则直接将dk插入到事件队列中
 		dk = ds->ds_dkev;
 		_dispatch_kevent_insert(dk);
 		new_flags = dk->dk_kevent.fflags;
 		do_resume = true;
 	}
-
+	// 将ds->ds_refs的dr_list插入到dk的dk_sources尾部
 	TAILQ_INSERT_TAIL(&dk->dk_sources, ds->ds_refs, dr_list);
 
 	// Re-register the kevent with the kernel if new flags were added
 	// by the dispatch kevent
+	// 如果flags有更新，则需要重新注册kevent事件
 	if (do_resume) {
 		dk->dk_kevent.flags |= EV_ADD;
 	}
