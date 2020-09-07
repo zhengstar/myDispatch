@@ -1210,7 +1210,10 @@ _dispatch_async_f_redirect(dispatch_queue_t dq,
 		running = dispatch_atomic_add2o(rq, dq_running, 2) - 2;
 		if (slowpath(running & 1) || slowpath(running + 2 > rq->dq_width)) {
 			if (slowpath(dispatch_atomic_sub2o(rq, dq_running, 2) == 0)) {
-				return _dispatch_async_f2_slow(rq, dc);
+				return
+				
+				
+				_dispatch_async_f2_slow(rq, dc);
 			}
 			break;
 		}
@@ -2723,7 +2726,7 @@ _dispatch_mgr_invoke(void)
 		_dispatch_run_timers();
 
 		timeoutp = _dispatch_get_next_timer_fire(&timeout);//取下次触发时间
-
+		
 		if (_dispatch_select_workaround) {
 			FD_COPY(&_dispatch_rfds, &tmp_rfds);
 			FD_COPY(&_dispatch_wfds, &tmp_wfds);

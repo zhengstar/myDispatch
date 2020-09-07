@@ -474,7 +474,7 @@ static void
 _dispatch_source_latch_and_call(dispatch_source_t ds)
 {
 	unsigned long prev;
-
+	// 如果已经取消 或者无引用 则返回
 	if ((ds->ds_atomic_flags & DSF_CANCELED) || (ds->do_xref_cnt == 0)) {
 		return;
 	}
@@ -535,7 +535,7 @@ _dispatch_source_invoke(dispatch_source_t ds)
 		if (slowpath(ds->do_xref_cnt == 0)) {
 			return &_dispatch_mgr_q; // rdar://problem/9558246
 		}
-	} else if (slowpath(DISPATCH_OBJECT_SUSPENDED(ds))) {
+	} else if (slowpath(DISPATCH_OBJECT_SUSPENDED(ds))) {//处于挂起状态直接返回
 		// Source suspended by an item drained from the source queue.
 		return NULL;
 	} else if (dr->ds_registration_handler) {
@@ -545,7 +545,7 @@ _dispatch_source_invoke(dispatch_source_t ds)
 			return ds->do_targetq;
 		}
 		// clears ds_registration_handler
-		_dispatch_source_registration_callout(ds);
+		_dispatch_source_registration_callout(ds);//触发注册回调 并清除ds_registration_handler
 		if (slowpath(ds->do_xref_cnt == 0)) {
 			return &_dispatch_mgr_q; // rdar://problem/9558246
 		}
@@ -572,10 +572,12 @@ _dispatch_source_invoke(dispatch_source_t ds)
 		// The source has pending data to deliver via the event handler callback
 		// on the target queue. Some sources need to be rearmed on the manager
 		// queue after event delivery.
-		// source有未决的数据，需要通过在目标队列上通过回调传送
+		
+		// 对于就绪的ds 需要在do_targetq执行
 		if (dq != ds->do_targetq) {
 			return ds->do_targetq;
 		}
+		//已经就绪的任务 调用注册的block
 		_dispatch_source_latch_and_call(ds);
 		// 有些source需要进行rearmed，必须切到管理队列上
 		if (ds->ds_needs_rearm) {
@@ -643,6 +645,7 @@ _dispatch_source_merge_kevent(dispatch_source_t ds, const struct kevent *ke)
 	// EVFILT_PROC may fail with ESRCH when the process exists but is a zombie
 	// <rdar://problem/5067725>. As a workaround, we simulate an exit event for
 	// any EVFILT_PROC with an invalid pid <rdar://problem/6626350>.
+	// 发生错误之后的清理工作
 	if (ke->flags & EV_ERROR) {
 		if (ke->filter == EVFILT_PROC && ke->data == ESRCH) {
 			fake = *ke;
